@@ -264,8 +264,10 @@ with tab1:
     with c1:
         st.subheader("trayectoria mensual")
 
-        df_chart = df.sort_values("Orden")
-        chart_df = df_chart.set_index("Mes")[["Final","PPP","Monetario","Mercado"]]
+        df_chart = df.sort_values("Orden").copy()
+        df_chart["Fecha"] = pd.date_range(start="2026-03-01", periods=len(df_chart), freq="MS")
+
+        chart_df = df_chart.set_index("Fecha")[["Final","PPP","Monetario","Mercado"]]
 
         st.line_chart(chart_df)
 
