@@ -262,8 +262,12 @@ with tab1:
     c1, c2 = st.columns([2.4,1])
     with c1:
         st.subheader("trayectoria mensual")
-        chart_df = df.sort_values("Orden")[["Mes","Final","PPP","Monetario","Mercado"]].set_index("Mes")
-        st.line_chart(chart_df)
+        df_chart = df.sort_values("Orden").copy()
+df_chart["Fecha"] = pd.date_range(start="2026-03-01", periods=len(df_chart), freq="M")
+
+chart_df = df_chart.set_index("Fecha")[["Final","PPP","Monetario","Mercado"]]
+
+st.line_chart(chart_df)
     with c2:
         st.subheader("drivers clave")
         drivers_df = pd.DataFrame({
