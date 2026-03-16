@@ -1,1 +1,1 @@
-Subí app.py y requirements.txt a GitHub para reemplazar los actuales. Streamlit redeploya solo.
+Reemplazá app.py y requirements.txt en GitHub. Esta v3 corrige el orden temporal del gráfico y mejora la legibilidad.

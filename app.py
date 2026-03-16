@@ -3,6 +3,7 @@ import numpy as np
 import pandas as pd
 import requests
 import streamlit as st
+import matplotlib.pyplot as plt
 
 st.set_page_config(page_title="Dashboard macro dólar Argentina", layout="wide")
 
@@ -23,11 +24,16 @@ SCENARIOS = {
         "riesgoPais": {2026: 700.0, 2027: 580.0, 2028: 500.0}, "mercadoDic": {2026: 1950.0, 2027: 2400.0, 2028: 2900.0},
         "mep": 1775.0, "ccl": 1815.0, "itcrm": 104.0, "energyBalance": 5.0, "netReserves": 7.0},
 }
-MONTHS = ["Mar-26","Abr-26","May-26","Jun-26","Jul-26","Ago-26","Sep-26","Oct-26","Nov-26","Dic-26","Ene-27","Feb-27","Mar-27","Abr-27","May-27","Jun-27","Jul-27","Ago-27","Sep-27","Oct-27","Nov-27","Dic-27","Ene-28","Feb-28","Mar-28","Abr-28","May-28","Jun-28","Jul-28","Ago-28","Sep-28","Oct-28","Nov-28","Dic-28"]
+
+MONTHS = [
+    ("Mar-26", 1),("Abr-26", 2),("May-26", 3),("Jun-26", 4),("Jul-26", 5),("Ago-26", 6),("Sep-26", 7),("Oct-26", 8),("Nov-26", 9),("Dic-26", 10),
+    ("Ene-27", 11),("Feb-27", 12),("Mar-27", 13),("Abr-27", 14),("May-27", 15),("Jun-27", 16),("Jul-27", 17),("Ago-27", 18),("Sep-27", 19),("Oct-27", 20),("Nov-27", 21),("Dic-27", 22),
+    ("Ene-28", 23),("Feb-28", 24),("Mar-28", 25),("Abr-28", 26),("May-28", 27),("Jun-28", 28),("Jul-28", 29),("Ago-28", 30),("Sep-28", 31),("Oct-28", 32),("Nov-28", 33),("Dic-28", 34),
+]
 
 def monthly_rate(a): return math.pow(1 + a / 100.0, 1 / 12.0) - 1
 def year_from_label(label): return 2026 if label.endswith("-26") else 2027 if label.endswith("-27") else 2028
-def last_index_for_year(year): return 9 if year == 2026 else 21 if year == 2027 else 33
+def last_index_for_year(year): return 10 if year == 2026 else 22 if year == 2027 else 34
 def percentile(values, p): s = sorted(values); return s[int((len(s)-1)*p)]
 def fmt_ars(n): return f"$ {n:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 def fmt_num(n, d=1): return f"{n:,.{d}f}".replace(",", "X").replace(".", ",").replace("X", ".")
@@ -64,24 +70,29 @@ def build_series(spot, assumptions, base_monetaria, piso_banda, techo_banda, wei
     previous_market = spot
     k = spot / (base_monetaria / assumptions["reserves"][2026])
     out = []
-    for i, mes in enumerate(MONTHS):
+    for mes, idx in MONTHS:
         year = year_from_label(mes)
-        m_infl_ar = monthly_rate(assumptions["arInfl"][year]); m_infl_us = monthly_rate(assumptions["usInfl"][year]); m_crawling = monthly_rate(assumptions["crawling"][year])
+        m_infl_ar = monthly_rate(assumptions["arInfl"][year])
+        m_infl_us = monthly_rate(assumptions["usInfl"][year])
+        m_crawling = monthly_rate(assumptions["crawling"][year])
         saldo_mensual = (assumptions["exports"][year] - assumptions["imports"][year]) / 12.0
-        reserve_target = assumptions["reserves"][year]; riesgo = assumptions["riesgoPais"][year]
+        reserve_target = assumptions["reserves"][year]
+        riesgo = assumptions["riesgoPais"][year]
         cumulative_ppp *= (1 + m_infl_ar) / (1 + m_infl_us)
         current_reserves = current_reserves + (saldo_mensual * 0.30) + ((reserve_target - current_reserves) * 0.12)
         current_bm *= (1 + m_infl_ar * 0.75)
         monetario = k * (current_bm / current_reserves)
-        months_left = last_index_for_year(year) - i + 1
+        months_left = last_index_for_year(year) - idx + 1
         mercado_year_end = assumptions["mercadoDic"][year]
         previous_market = previous_market + ((mercado_year_end - previous_market) / max(1, months_left))
         mercado = previous_market * (1 + m_crawling * 0.12)
         riesgo_factor = 1 + ((riesgo - 450) / 1000.0) * 0.28
         tc_pre = weights["ppp"]*cumulative_ppp + weights["monetario"]*monetario + weights["mercado"]*mercado + weights["regimen"]*prev_final + weights["riesgo"]*(spot*riesgo_factor)
-        band_sup = techo_banda * math.pow(1.01, i); band_inf = piso_banda * math.pow(1.005, i); final = max(band_inf, min(tc_pre, band_sup))
+        band_sup = techo_banda * math.pow(1.01, idx-1)
+        band_inf = piso_banda * math.pow(1.005, idx-1)
+        final = max(band_inf, min(tc_pre, band_sup))
         prev_final = final
-        out.append({"Mes": mes, "PPP": round(cumulative_ppp,1), "Monetario": round(monetario,1), "Mercado": round(mercado,1), "Final": round(final,1), "Reservas": round(current_reserves,0)})
+        out.append({"Orden": idx, "Mes": mes, "PPP": round(cumulative_ppp,1), "Monetario": round(monetario,1), "Mercado": round(mercado,1), "Final": round(final,1), "Reservas": round(current_reserves,0)})
     return pd.DataFrame(out)
 
 def montecarlo(assumptions, spot, base_monetaria, piso_banda, techo_banda, weights, runs=300):
@@ -99,8 +110,23 @@ def montecarlo(assumptions, spot, base_monetaria, piso_banda, techo_banda, weigh
         r26.append(run.iloc[9]["Final"]); r27.append(run.iloc[21]["Final"]); r28.append(run.iloc[33]["Final"])
     return {"2026": {"p10": percentile(r26,.1), "p50": percentile(r26,.5), "p90": percentile(r26,.9)}, "2027": {"p10": percentile(r27,.1), "p50": percentile(r27,.5), "p90": percentile(r27,.9)}, "2028": {"p10": percentile(r28,.1), "p50": percentile(r28,.5), "p90": percentile(r28,.9)}}
 
+def line_plot(df):
+    fig, ax = plt.subplots(figsize=(11, 4.8))
+    x = df["Mes"]
+    ax.plot(x, df["Final"], label="Final", linewidth=2.8)
+    ax.plot(x, df["PPP"], label="PPP", linewidth=1.8)
+    ax.plot(x, df["Monetario"], label="Monetario", linewidth=1.8)
+    ax.plot(x, df["Mercado"], label="Mercado", linewidth=1.8)
+    ax.set_ylabel("ARS/USD")
+    ax.grid(True, alpha=0.25)
+    ax.legend(ncol=4, frameon=False, loc="upper left")
+    plt.xticks(rotation=90, fontsize=8)
+    plt.tight_layout()
+    return fig
+
 st.title("dashboard macro dólar argentina")
-st.caption("v2 ejecutiva: brecha, reservas netas, TCR, Monte Carlo 2026-2028, Big Mac y sendero mensual")
+st.caption("v3 corregida: orden temporal correcto, tarjetas más legibles y gráfico estable")
+
 with st.sidebar:
     scenario = st.selectbox("Escenario", list(SCENARIOS.keys()), index=1)
     live = fetch_live()
@@ -109,7 +135,8 @@ with st.sidebar:
     if live["status"] == "error": st.error("No se pudieron traer datos reales. El modelo igual funciona con supuestos.")
     elif live["status"] == "partial": st.warning("Datos reales parciales.")
     else: st.success("Datos reales cargados.")
-    spot_default = live["values"].get("fx", {}).get("valor", 1392.99); base_default = live["values"].get("monetary_base", {}).get("valor", 40737.0)
+    spot_default = live["values"].get("fx", {}).get("valor", 1392.99)
+    base_default = live["values"].get("monetary_base", {}).get("valor", 40737.0)
     spot = st.number_input("spot mayorista", value=float(spot_default), step=10.0)
     base_monetaria = st.number_input("base monetaria", value=float(base_default), step=100.0)
     piso_banda = st.number_input("piso banda", value=855.26, step=10.0)
@@ -118,32 +145,64 @@ with st.sidebar:
     big_mac_usd = st.number_input("big mac USD", value=6.12, step=0.1)
 
 assumptions = {k:(v.copy() if isinstance(v, dict) else v) for k,v in SCENARIOS[scenario].items()}
-if "reserves" in live["values"]: assumptions["reserves"][2026] = max(assumptions["reserves"][2026], live["values"]["reserves"]["valor"])
-official = spot; mep = assumptions["mep"]; brecha = (mep/official - 1)*100; big_mac_fx = big_mac_ars/big_mac_usd; saldo_2026 = assumptions["exports"][2026]-assumptions["imports"][2026]
+if "reserves" in live["values"]:
+    assumptions["reserves"][2026] = max(assumptions["reserves"][2026], live["values"]["reserves"]["valor"])
+
+official = spot
+mep = assumptions["mep"]
+brecha = (mep/official - 1)*100
+big_mac_fx = big_mac_ars/big_mac_usd
+saldo_2026 = assumptions["exports"][2026]-assumptions["imports"][2026]
 weights = {"ppp":0.35, "monetario":0.25, "mercado":0.20, "regimen":0.10, "riesgo":0.10}
-df = build_series(spot, assumptions, base_monetaria, piso_banda, techo_banda, weights); mc = montecarlo(assumptions, spot, base_monetaria, piso_banda, techo_banda, weights)
-fair_value = df.iloc[9]["PPP"]*0.40 + df.iloc[9]["Monetario"]*0.35 + df.iloc[9]["Mercado"]*0.25; atraso = (fair_value/official - 1)*100
+df = build_series(spot, assumptions, base_monetaria, piso_banda, techo_banda, weights)
+mc = montecarlo(assumptions, spot, base_monetaria, piso_banda, techo_banda, weights)
+fair_value = df.iloc[9]["PPP"]*0.40 + df.iloc[9]["Monetario"]*0.35 + df.iloc[9]["Mercado"]*0.25
+atraso = (fair_value/official - 1)*100
 
 row1 = st.columns(6)
-row1[0].metric("oficial", fmt_ars(official)); row1[1].metric("MEP", fmt_ars(mep)); row1[2].metric("brecha", f"{fmt_num(brecha,1)}%"); row1[3].metric("dic-2026", fmt_ars(df.iloc[9]["Final"])); row1[4].metric("dic-2027", fmt_ars(df.iloc[21]["Final"])); row1[5].metric("dic-2028", fmt_ars(df.iloc[33]["Final"]))
+row1[0].metric("oficial", fmt_ars(official))
+row1[1].metric("MEP", fmt_ars(mep))
+row1[2].metric("brecha", f"{fmt_num(brecha,1)}%")
+row1[3].metric("dic-2026", fmt_ars(df.iloc[9]['Final']))
+row1[4].metric("dic-2027", fmt_ars(df.iloc[21]['Final']))
+row1[5].metric("dic-2028", fmt_ars(df.iloc[33]['Final']))
+
 row2 = st.columns(6)
-row2[0].metric("inflación AR 2026", f"{fmt_num(assumptions['arInfl'][2026],1)}%"); row2[1].metric("inflación US 2026", f"{fmt_num(assumptions['usInfl'][2026],1)}%"); row2[2].metric("reservas netas est.", f"USD {fmt_num(assumptions['netReserves'],1)} B"); row2[3].metric("saldo comercial 2026", fmt_usd_mm(saldo_2026/1000)); row2[4].metric("riesgo país", f"{fmt_num(assumptions['riesgoPais'][2026],0)}"); row2[5].metric("ITCRM/TCR", f"{fmt_num(assumptions['itcrm'],1)}")
+row2[0].metric("inflación AR 2026", f"{fmt_num(assumptions['arInfl'][2026],1)}%")
+row2[1].metric("inflación US 2026", f"{fmt_num(assumptions['usInfl'][2026],1)}%")
+row2[2].metric("reservas netas est.", f"USD {fmt_num(assumptions['netReserves'],1)} B")
+row2[3].metric("saldo comercial 2026", fmt_usd_mm(saldo_2026/1000))
+row2[4].metric("riesgo país", f"{fmt_num(assumptions['riesgoPais'][2026],0)}")
+row2[5].metric("ITCRM/TCR", f"{fmt_num(assumptions['itcrm'],1)}")
 
 tab1, tab2, tab3, tab4, tab5 = st.tabs(["pantalla principal","probabilidades","valuación","datos reales","tabla"])
 with tab1:
-    c1, c2 = st.columns([2,1])
-    with c1: st.subheader("trayectoria mensual"); st.line_chart(df.set_index("Mes")[["Final","PPP","Monetario","Mercado"]])
+    c1, c2 = st.columns([2.4,1])
+    with c1:
+        st.subheader("trayectoria mensual")
+        st.pyplot(line_plot(df))
     with c2:
         st.subheader("drivers clave")
-        st.write({"brecha": f"{fmt_num(brecha,1)}%", "crawling 2026": f"{fmt_num(assumptions['crawling'][2026],1)}%", "balance energético 2026": f"USD {fmt_num(assumptions['energyBalance'],1)} B", "reservas netas": f"USD {fmt_num(assumptions['netReserves'],1)} B", "atraso cambiario est.": f"{fmt_num(atraso,1)}%"})
+        drivers_df = pd.DataFrame({
+            "Variable": ["brecha", "crawling 2026", "balance energético 2026", "reservas netas", "atraso cambiario estimado"],
+            "Valor": [f"{fmt_num(brecha,1)}%", f"{fmt_num(assumptions['crawling'][2026],1)}%", f"USD {fmt_num(assumptions['energyBalance'],1)} B", f"USD {fmt_num(assumptions['netReserves'],1)} B", f"{fmt_num(atraso,1)}%"]
+        })
+        st.dataframe(drivers_df, use_container_width=True, hide_index=True)
         st.metric("tipo de cambio Big Mac", fmt_ars(big_mac_fx))
 with tab2:
     cols = st.columns(3)
     for col, year in zip(cols, ["2026","2027","2028"]):
-        with col: st.subheader(f"dic-{year}"); st.metric("P10", fmt_ars(mc[year]["p10"])); st.metric("P50", fmt_ars(mc[year]["p50"])); st.metric("P90", fmt_ars(mc[year]["p90"]))
+        with col:
+            st.subheader(f"dic-{year}")
+            st.metric("P10", fmt_ars(mc[year]["p10"]))
+            st.metric("P50", fmt_ars(mc[year]["p50"]))
+            st.metric("P90", fmt_ars(mc[year]["p90"]))
 with tab3:
     vals = pd.DataFrame({"Método":["PPP dic-2026","Monetario dic-2026","Mercado dic-2026","Big Mac","Fair value blended"], "Valor":[df.iloc[9]["PPP"], df.iloc[9]["Monetario"], df.iloc[9]["Mercado"], big_mac_fx, fair_value]})
-    st.dataframe(vals, use_container_width=True, hide_index=True); st.metric("atraso / sobrevaluación estimada", f"{fmt_num(atraso,1)}%")
+    st.dataframe(vals, use_container_width=True, hide_index=True)
+    st.metric("atraso / sobrevaluación estimada", f"{fmt_num(atraso,1)}%")
 with tab4:
-    st.write({"status": live["status"], "sources": live["sources"], "errors": live["errors"]}); st.json(live["values"])
-with tab5: st.dataframe(df, use_container_width=True)
+    st.write({"status": live["status"], "sources": live["sources"], "errors": live["errors"]})
+    st.json(live["values"])
+with tab5:
+    st.dataframe(df.drop(columns=["Orden"]), use_container_width=True)
