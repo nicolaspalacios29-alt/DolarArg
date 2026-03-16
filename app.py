@@ -260,16 +260,16 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs(["pantalla principal","probabilidades","v
 
 with tab1:
     c1, c2 = st.columns([2.4,1])
+
     with c1:
         st.subheader("trayectoria mensual")
-        df_chart = df.sort_values("Orden").copy()
-df_chart["Fecha"] = pd.date_range(start="2026-03-01", periods=len(df_chart), freq="M")
 
-chart_df = df_chart.set_index("Fecha")[["Final","PPP","Monetario","Mercado"]]
+        chart_df = df.sort_values("Orden").set_index("Orden")[["Final","PPP","Monetario","Mercado"]]
+        st.line_chart(chart_df)
 
-st.line_chart(chart_df)
     with c2:
         st.subheader("drivers clave")
+
         drivers_df = pd.DataFrame({
             "Variable": ["brecha", "crawling 2026", "balance energético", "reservas netas", "atraso cambiario"],
             "Valor": [
@@ -280,6 +280,7 @@ st.line_chart(chart_df)
                 f"{fmt_num(atraso,1)}%"
             ]
         })
+
         st.dataframe(drivers_df, use_container_width=True, hide_index=True)
         st.metric("tipo de cambio Big Mac", fmt_ars(big_mac_fx))
 
